@@ -111,6 +111,34 @@ return {
         end,
     },
     {
+        name = 'zeta.parse_response accepts a span that repeats the markers between its blocks',
+        run = function()
+            local lines = {}
+            for i = 1, 40 do
+                lines[i] = 'l' .. i
+            end
+            -- 40 lines make three blocks: 1-16, 17-32, 33-40.
+            local zeta, context, bufnr = setup(lines, { 1, 0 })
+            local first = vim.list_slice(lines, 1, 16)
+            first[3] = 'new3'
+            local second = vim.list_slice(lines, 17, 32)
+            second[2] = 'new18<|user_cursor|>'
+            local text = zeta.parse_response(
+                '<|marker_1|>\n'
+                    .. table.concat(first, '\n')
+                    .. '\n<|marker_2|>\n'
+                    .. table.concat(second, '\n')
+                    .. '\n<|marker_3|>',
+                context
+            )
+            local expected = vim.deepcopy(lines)
+            expected[3] = 'new3'
+            expected[18] = 'new18<cursor_position/>'
+            helpers.expect_equal(text, '<editable_region>\n' .. table.concat(expected, '\n') .. '\n</editable_region>')
+            helpers.delete_buffer(bufnr)
+        end,
+    },
+    {
         name = 'zeta.parse_response puts the cursor at the end of the span when the model gives none',
         run = function()
             local zeta, context, bufnr = setup({ 'a', 'b' }, { 1, 0 })

@@ -117,23 +117,45 @@ function M.parse_response(text, context)
         text = text:sub(1, eos - 1)
     end
 
-    local first_start, first_end, first_number = text:find '<|marker_(%d+)|>'
-    if not first_start then
+    -- The answer spans blocks from its first marker to its last. When it
+    -- covers several blocks it may repeat the markers between them; those
+    -- must increase and are dropped.
+    local hits = {}
+    local search_from = 1
+    while true do
+        local s, e, number = text:find('<|marker_(%d+)|>', search_from)
+        if not s then
+            break
+        end
+        table.insert(hits, { start = s, finish = e, number = tonumber(number) })
+        search_from = e + 1
+    end
+    if #hits < 2 then
         return nil
     end
-    local second_start, second_end, second_number = text:find('<|marker_(%d+)|>', first_end + 1)
-    if not second_start or text:find('<|marker_%d+|>', second_end + 1) then
-        return nil
+    for i = 2, #hits do
+        if hits[i].number <= hits[i - 1].number then
+            return nil
+        end
     end
 
     local boundaries = marker_boundaries(context.original_lines)
-    local first = tonumber(first_number) --[[@as integer]]
-    local second = tonumber(second_number) --[[@as integer]]
-    if first < 1 or second > #boundaries or second <= first then
+    local first = hits[1].number --[[@as integer]]
+    local second = hits[#hits].number --[[@as integer]]
+    if first < 1 or second > #boundaries then
         return nil
     end
 
-    local replacement = text:sub(first_end + 1, second_start - 1):gsub('^\r?\n', '')
+    local inner = {}
+    for i = 1, #hits - 1 do
+        local piece = text:sub(hits[i].finish + 1, hits[i + 1].start - 1)
+        if i > 1 then
+            piece = piece:gsub('^\r?\n', '')
+        end
+        table.insert(inner, piece)
+    end
+
+    local replacement = table.concat(inner):gsub('^\r?\n', '')
     replacement = replacement:gsub('\r?\n$', '')
     local markers = require('minuet').config.duet.markers
 
