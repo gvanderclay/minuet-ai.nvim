@@ -1651,6 +1651,25 @@ recent_edits = {
 },
 ```
 
+## Prefetch
+
+A rename or other change that reaches several places is often shown in
+steps: apply one prediction, and the next one appears after another request.
+Set `prefetch = true` to request that next prediction while the first is
+still shown, from the buffer as applying it will leave it. Applying then shows
+it at once, or as soon as it arrives. Dismissing the prediction, editing, a
+new prediction, or leaving the buffer discards it. Each shown prediction costs
+one more request. Supported by the `zeta` provider.
+
+```lua
+require('minuet').setup {
+    duet = {
+        provider = 'zeta',
+        prefetch = true,
+    },
+}
+```
+
 ## TODO
 
 - [x] Implement a proper diff mechanism to include recent edit changes in prompts.
@@ -1697,6 +1716,7 @@ require('minuet').setup {
             flush_timeout = 200, -- Max milliseconds a prediction waits for in-flight diffs before proceeding with slightly stale history.
             enable_predicates = { ... }, -- Per-buffer predicates called with a buffer number; a buffer is tracked only while all return true. Defaults to rejecting dotenv files (.env, .env.*); overriding replaces that default.
         },
+        prefetch = false, -- While a prediction is shown, predict the one that follows applying it, so applying shows the next prediction at once. Supported by the zeta provider.
         markers = {
             editable_region_start = '<editable_region>', -- Marker that wraps the start of the editable region in prompts and responses.
             editable_region_end = '</editable_region>', -- Marker that wraps the end of the editable region in prompts and responses.

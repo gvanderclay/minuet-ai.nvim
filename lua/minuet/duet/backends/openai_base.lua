@@ -39,7 +39,8 @@ end
 ---@param headers table<string, string>
 ---@param decode fun(result: vim.SystemCompleted, data_file: string): string? turns the curl result into text and deletes `data_file`
 ---@param callback fun(text: string?)
-function M.send_request(options, data, headers, decode, callback)
+---@param opts? { prefetch?: boolean } prefetch tracks the request in common.prefetch_jobs
+function M.send_request(options, data, headers, decode, callback, opts)
     local root_config = require('minuet').config
     local duet_config = root_config.duet
 
@@ -69,6 +70,7 @@ function M.send_request(options, data, headers, decode, callback)
     })
 
     local job = common.start_job(root_config.curl_cmd, args, {
+        prefetch = opts and opts.prefetch,
         on_exit = function(_, result)
             utils.run_event('MinuetDuetRequestFinished', {
                 provider = options.provider,

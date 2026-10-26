@@ -36,9 +36,19 @@ local function get_state(bufnr)
     return state
 end
 
+---Stop and forget the prediction made for after the shown one.
+local function discard_prefetch(state)
+    if state.prefetch and not state.prefetch.done then
+        common.terminate_prefetch_jobs()
+    end
+    state.prefetch = nil
+end
+
 local function clear_state(bufnr, state)
     state = state or get_state(bufnr)
     preview.clear(bufnr, state)
+    discard_prefetch(state)
+    state.skip_tick = nil
     state.pending_seq = nil
     state.changedtick = nil
     state.range = nil
@@ -74,6 +84,88 @@ local function current_provider()
     return require('minuet').config.duet.provider
 end
 
+local show
+
+---Show the prefetched prediction that apply waited for, if it proposes an
+---edit and the buffer is still as apply left it.
+local function use_prefetch(bufnr, state)
+    local prefetch = state.prefetch
+    state.prefetch = nil
+    local auto_trigger = require('minuet').config.duet.auto_trigger
+    if
+        not prefetch.parsed
+        or utils.get_changedtick(bufnr) ~= prefetch.applied_tick
+        or (auto_trigger.hold_in_insert_mode and in_insert_mode())
+    then
+        return
+    end
+
+    state.changedtick = prefetch.applied_tick
+    state.range = prefetch.context.range
+    state.original_lines = prefetch.context.original_lines
+    state.proposed_lines = prefetch.parsed.lines
+    state.proposed_cursor = prefetch.parsed.cursor
+    show(bufnr, state)
+end
+
+---Predict from the buffer as applying the shown prediction will leave it,
+---so apply can show the next prediction without waiting.
+local function start_prefetch(bufnr, state)
+    local config = require('minuet').config.duet
+    if not config.prefetch then
+        return
+    end
+    discard_prefetch(state)
+
+    local ok, backend = pcall(require, 'minuet.duet.backends.' .. config.provider)
+    if not ok then
+        return
+    end
+
+    local old_lines = api.nvim_buf_get_lines(bufnr, 0, -1, false)
+    local lines = vim.list_slice(old_lines, 1, state.range.start_row)
+    vim.list_extend(lines, state.proposed_lines)
+    vim.list_extend(lines, old_lines, state.range.end_row + 1)
+    local row = state.range.start_row + state.proposed_cursor.row_offset + 1
+    local cursor = { row, math.min(state.proposed_cursor.col, #(lines[row] or '')) }
+
+    local edit
+    if config.recent_edits.enabled then
+        ---@diagnostic disable-next-line: deprecated
+        local diff = (vim.text and vim.text.diff) or vim.diff
+        local hunks = diff(table.concat(old_lines, '\n') .. '\n', table.concat(lines, '\n') .. '\n', {
+            ctxlen = config.recent_edits.diff_context_lines,
+        })
+        ---@cast hunks string
+        edit = hunks:gsub('\n$', '')
+    end
+
+    local prefetch_context = context.build(bufnr, { cursor = cursor, lines = lines, edit = edit })
+    ---@type { cursor: integer[], context: minuet.DuetContext, done?: boolean, parsed?: table, applied_tick?: integer }
+    local prefetch = { cursor = cursor, context = prefetch_context }
+    state.prefetch = prefetch
+
+    backend.complete(prefetch_context, function(text)
+        vim.schedule(function()
+            if state.prefetch ~= prefetch then
+                return
+            end
+            prefetch.done = true
+            if text then
+                prefetch.parsed = utils.parse_duet_response(text, prefetch_context)
+            end
+            if prefetch.applied_tick then
+                use_prefetch(bufnr, state)
+            end
+        end)
+    end, { prefetch = true })
+end
+
+show = function(bufnr, state)
+    preview.render(bufnr, state)
+    start_prefetch(bufnr, state)
+end
+
 ---@param opts? { flush_timeout?: integer, hold?: boolean } flush_timeout bounds the recent-edits wait in milliseconds; defaults to recent_edits.flush_timeout. hold predicts from the cursor Normal mode will have and keeps the result hidden until Insert mode is left
 local function predict(opts)
     stop_timer()
@@ -94,7 +186,7 @@ local function predict(opts)
     edits.flush(bufnr, { wait = true, timeout = opts and opts.flush_timeout })
 
     local leave_cursor = opts and opts.hold and normal_mode_cursor() or nil
-    local current_context = context.build(bufnr, leave_cursor)
+    local current_context = context.build(bufnr, { cursor = leave_cursor })
     local provider_name = current_provider()
     local ok, backend = pcall(require, 'minuet.duet.backends.' .. provider_name)
 
@@ -150,7 +242,7 @@ local function predict(opts)
             end
             state.leave_cursor = nil
 
-            preview.render(bufnr, state)
+            show(bufnr, state)
         end)
     end)
 end
@@ -171,6 +263,9 @@ local function apply()
         return
     end
 
+    local prefetch = state.prefetch
+    state.prefetch = nil
+
     api.nvim_buf_set_lines(bufnr, state.range.start_row, state.range.end_row, false, state.proposed_lines)
 
     local target_row = state.range.start_row + state.proposed_cursor.row_offset + 1
@@ -180,6 +275,19 @@ local function apply()
     api.nvim_win_set_cursor(0, { target_row, target_col })
 
     clear_state(bufnr, state)
+
+    -- The prefetch was made for this buffer text and cursor: show it now or
+    -- when it arrives, instead of predicting again after the text change.
+    if prefetch and vim.deep_equal(prefetch.cursor, { target_row, target_col }) then
+        prefetch.applied_tick = utils.get_changedtick(bufnr)
+        state.prefetch = prefetch
+        state.skip_tick = prefetch.applied_tick
+        if prefetch.done then
+            use_prefetch(bufnr, state)
+        end
+    elseif prefetch and not prefetch.done then
+        common.terminate_prefetch_jobs()
+    end
 end
 
 local function dismiss()
@@ -234,6 +342,10 @@ end
 ---@param info { buf: integer }
 local function on_text_changed(info)
     local state = internal.states[info.buf]
+    -- The change apply made when it used a prefetched prediction.
+    if state and state.skip_tick == api.nvim_buf_get_changedtick(info.buf) then
+        return
+    end
     if state then
         -- The running request's answer would be discarded; stop it so it
         -- does not keep the server busy.
@@ -327,7 +439,7 @@ function M.setup()
                 then
                     state.leave_cursor = nil
                     if state.proposed_lines then
-                        preview.render(info.buf, state)
+                        show(info.buf, state)
                     end
                     return
                 end
@@ -344,9 +456,24 @@ function M.setup()
         desc = '[minuet.duet] schedule auto trigger after an insert that changed text',
     })
 
+    api.nvim_create_autocmd('BufLeave', {
+        group = M.augroup,
+        callback = function(info)
+            local state = internal.states[info.buf]
+            if state then
+                discard_prefetch(state)
+            end
+        end,
+        desc = '[minuet.duet] discard the prefetched prediction on leaving the buffer',
+    })
+
     api.nvim_create_autocmd('BufWipeout', {
         group = M.augroup,
         callback = function(info)
+            local state = internal.states[info.buf]
+            if state then
+                discard_prefetch(state)
+            end
             internal.states[info.buf] = nil
             internal.insert_ticks[info.buf] = nil
         end,

@@ -187,16 +187,19 @@ end
 
 ---@param context minuet.DuetContext
 ---@param callback fun(text: string?)
-function M.complete(context, callback)
+---@param opts? { prefetch?: boolean } prefetch leaves running requests alone and is tracked in common.prefetch_jobs
+function M.complete(context, callback, opts)
     local options = vim.deepcopy(require('minuet').config.duet.provider_options.zeta)
     options.provider = 'zeta'
     options.name = options.name or 'Zeta'
 
-    common.terminate_all_jobs()
+    if not (opts and opts.prefetch) then
+        common.terminate_all_jobs()
+    end
 
     local events = {}
     if require('minuet').config.duet.recent_edits.enabled then
-        events = require('minuet.duet.edits').get_events()
+        events = context.recent_events or require('minuet.duet.edits').get_events()
     end
 
     local data = {
@@ -242,7 +245,7 @@ function M.complete(context, callback)
             utils.notify('Zeta proposed no edit.', 'verbose', vim.log.levels.INFO)
         end
         return response
-    end, callback)
+    end, callback, opts)
 end
 
 return M

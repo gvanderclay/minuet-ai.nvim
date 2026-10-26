@@ -274,6 +274,7 @@ end
 ---@field editable_region minuet.DuetEditableRegion
 ---@field non_editable_region minuet.DuetNonEditableRegion
 ---@field recent_edits minuet.DuetRecentEdits
+---@field prefetch boolean while a prediction is shown, predict the one after it, so applying shows the next at once
 ---@field markers { editable_region_start: string, editable_region_end: string, cursor_position: string }
 ---@field preview { cursor: string }
 ---@field provider_options table<string, table>
@@ -340,6 +341,10 @@ local M = {
             end,
         },
     },
+    -- while a prediction is shown, predict the one that will follow applying
+    -- it, so applying shows the next prediction at once; supported by the
+    -- zeta provider
+    prefetch = false,
     markers = vim.deepcopy(default_markers),
     preview = {
         cursor = '\u{f246}',

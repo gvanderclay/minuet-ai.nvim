@@ -1,29 +1,40 @@
 local M = {}
 
 M.current_jobs = {}
+-- Requests for the prediction after a shown one; terminate_all_jobs leaves
+-- them running.
+M.prefetch_jobs = {}
 
-local function register_job(job)
-    table.insert(M.current_jobs, job)
-end
-
-local function remove_job(job)
-    for index, current_job in ipairs(M.current_jobs) do
+---@param list_name 'current_jobs'|'prefetch_jobs'
+local function remove_job(list_name, job)
+    for index, current_job in ipairs(M[list_name]) do
         if current_job.pid == job.pid then
-            table.remove(M.current_jobs, index)
+            table.remove(M[list_name], index)
             break
         end
     end
 end
 
-function M.terminate_all_jobs()
-    for _, job in ipairs(M.current_jobs) do
+---@param list_name 'current_jobs'|'prefetch_jobs'
+local function terminate_jobs(list_name)
+    for _, job in ipairs(M[list_name]) do
         pcall(job.kill, job, 'sigterm')
     end
 
-    M.current_jobs = {}
+    M[list_name] = {}
 end
 
+function M.terminate_all_jobs()
+    terminate_jobs 'current_jobs'
+end
+
+function M.terminate_prefetch_jobs()
+    terminate_jobs 'prefetch_jobs'
+end
+
+---@param handlers { on_exit: fun(job: vim.SystemObj, out: vim.SystemCompleted), on_spawn_error?: fun(), prefetch?: boolean } prefetch tracks the job in prefetch_jobs
 function M.start_job(command, args, handlers)
+    local list_name = handlers.prefetch and 'prefetch_jobs' or 'current_jobs'
     local cmd = { command }
     vim.list_extend(cmd, args)
 
@@ -37,7 +48,7 @@ function M.start_job(command, args, handlers)
                 return
             end
 
-            remove_job(job)
+            remove_job(list_name, job)
             handlers.on_exit(job, out)
         end)
     )
@@ -50,7 +61,7 @@ function M.start_job(command, args, handlers)
     end
 
     job = result
-    register_job(job)
+    table.insert(M[list_name], job)
 
     return job
 end
