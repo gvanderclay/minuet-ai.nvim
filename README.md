@@ -1591,6 +1591,31 @@ require('minuet').setup {
 }
 ```
 
+**Example: predict while typing, show the prediction in normal mode**
+
+With a Normal-mode-only predicate, a prediction starts only after you leave
+Insert mode, so you wait for the whole request. Set
+`auto_trigger.hold_in_insert_mode = true` (and drop the predicate) to start
+the prediction when typing pauses in Insert mode instead. It is computed from
+the cursor Normal mode will have and held hidden, so it never covers inline
+completion. On `<Esc>` it is shown at once, or as soon as it arrives, if the
+buffer and cursor still match; otherwise duet predicts again after leaving
+Insert mode. A held prediction waits for a running inline completion
+request. When both models run on the same local hardware, set
+`auto_trigger.insert_mode_debounce` above `debounce` so the short pauses of
+steady typing start no prediction.
+
+```lua
+require('minuet').setup {
+    duet = {
+        auto_trigger = {
+            auto_trigger_ft = { 'lua', 'python' },
+            hold_in_insert_mode = true,
+        },
+    },
+}
+```
+
 ## Recent Edits
 
 Duet silently records your recent edits in the background and includes them in
@@ -1647,6 +1672,8 @@ require('minuet').setup {
             auto_trigger_ft = {}, -- Filetypes where automatic duet prediction is enabled; an empty list disables automatic prediction.
             auto_trigger_ignore_ft = {}, -- Filetypes excluded from automatic prediction, useful when auto_trigger_ft = { '*' }.
             enable_predicates = {}, -- Predicates run before an automatic prediction fires; a prediction is made only while all of them return true.
+            hold_in_insert_mode = false, -- Compute automatic predictions in Insert mode but show them only after leaving it, if the buffer and cursor still match.
+            insert_mode_debounce = nil, -- With hold_in_insert_mode, milliseconds of idle in Insert mode before a held prediction fires; nil uses debounce.
         },
         editable_region = {
             lines_before = 8, -- Number of editable lines included before the cursor.

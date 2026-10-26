@@ -63,10 +63,11 @@ local function truncate_non_editable_regions(context_before, context_after, conf
 end
 
 ---@param bufnr integer
+---@param cursor? integer[] (1,0)-indexed position to predict from; defaults to the window cursor
 ---@return minuet.DuetContext
-function M.build(bufnr)
+function M.build(bufnr, cursor)
     local config = require('minuet').config.duet
-    local cursor = vim.api.nvim_win_get_cursor(0)
+    cursor = cursor or vim.api.nvim_win_get_cursor(0)
     local all_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
     local line_count = math.max(#all_lines, 1)
     local cursor_line = cursor[1] - 1

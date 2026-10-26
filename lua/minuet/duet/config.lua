@@ -242,6 +242,8 @@ end
 ---@field auto_trigger_ft string[] filetypes where automatic duet prediction is enabled; an empty list disables automatic prediction
 ---@field auto_trigger_ignore_ft string[] filetypes excluded from automatic prediction, useful when auto_trigger_ft = { '*' }
 ---@field enable_predicates (fun(): boolean)[] predicates run before an automatic prediction fires; a prediction is made only while all of them return true
+---@field hold_in_insert_mode boolean compute automatic predictions in Insert mode from the cursor Normal mode will have, and show them only after leaving Insert mode if the buffer and cursor still match
+---@field insert_mode_debounce? integer with hold_in_insert_mode, milliseconds of idle in Insert mode before a held prediction fires; defaults to debounce
 
 ---@class minuet.DuetRecentEdits
 ---@field enabled boolean|'lazy' 'lazy' starts the recorder on the first duet prediction, true starts it at plugin setup, false disables it entirely
@@ -298,6 +300,13 @@ local M = {
         -- default) always evaluates to true. These predicates run on every
         -- debounced text change, so keep them cheap.
         enable_predicates = {},
+        -- compute automatic predictions while typing pauses in Insert mode,
+        -- from the cursor Normal mode will have, but show them only after
+        -- leaving Insert mode, and only if the buffer and cursor still match
+        hold_in_insert_mode = false,
+        -- with hold_in_insert_mode, milliseconds of idle in Insert mode
+        -- before a held prediction fires; nil uses debounce
+        insert_mode_debounce = nil,
     },
     editable_region = {
         lines_before = 8,
