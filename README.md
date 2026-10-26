@@ -1513,6 +1513,37 @@ region, including the cursor marker; if the response is truncated, the parser
 will reject it. Leave the limit unset when the provider allows that, or set it
 large enough to cover the full rewritten region.
 
+## Local Zeta-2.1
+
+The `zeta` provider uses Zed's Zeta-2.1 next-edit model through a completion
+endpoint such as llama-server (it sends raw completion requests, not chat
+requests). Start the server with a Zeta-2.1 GGUF file:
+
+```bash
+llama-server -m zeta-2.1.Q8_0.gguf --host 127.0.0.1 --port 8016 -ngl 99 -fa on -c 16384 -np 1
+```
+
+Then select the provider. Enabling `recent_edits` at startup gives the model
+your edit history from the first prediction.
+
+```lua
+require('minuet').setup {
+    duet = {
+        provider = 'zeta',
+        recent_edits = { enabled = true },
+        provider_options = {
+            zeta = {
+                end_point = 'http://127.0.0.1:8016/v1/completions',
+                model = 'zeta-2.1',
+            },
+        },
+    },
+}
+```
+
+The `editable_region`, `markers` and `request_timeout` settings still apply.
+The `optional` and `transform` options work as for the other providers.
+
 ## Auto Trigger
 
 ```lua
@@ -1598,7 +1629,8 @@ recent_edits = {
 ## TODO
 
 - [x] Implement a proper diff mechanism to include recent edit changes in prompts.
-- [ ] Add support for specialized NES models (Zeta, Sweep).
+- [x] Add support for Zeta-2.1.
+- [ ] Add support for other specialized NES models (Sweep).
 - [ ] Integrate with Inception's hosted API.
 - [x] Implement automatically triggered duet prediction.
 

@@ -205,6 +205,16 @@ local function make_openai_compatible_options()
     }
 end
 
+local function make_zeta_options()
+    return {
+        model = 'zeta-2.1',
+        end_point = 'http://127.0.0.1:8016/v1/completions',
+        name = 'Zeta',
+        optional = {},
+        transform = {},
+    }
+end
+
 ---@alias minuet.DuetChatInputFunction fun(context: table): string
 
 --- Configuration for formatting duet chat input to the LLM
@@ -330,6 +340,7 @@ local M = {
         claude = make_claude_options(),
         gemini = make_gemini_options(),
         openai_compatible = make_openai_compatible_options(),
+        zeta = make_zeta_options(),
     },
 }
 

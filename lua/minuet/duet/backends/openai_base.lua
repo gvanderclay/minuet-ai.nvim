@@ -8,9 +8,6 @@ function M.openai_get_text_fn_stream(json)
 end
 
 function M.complete_openai_base(options, context, callback)
-    local root_config = require('minuet').config
-    local duet_config = root_config.duet
-
     common.terminate_all_jobs()
 
     local system = utils.make_system_prompt(options.system)
@@ -26,13 +23,27 @@ function M.complete_openai_base(options, context, callback)
         stream = true,
     }
 
-    data = vim.tbl_deep_extend('force', data, options.optional or {})
-
     local headers = {
         ['Content-Type'] = 'application/json',
         ['Authorization'] = 'Bearer ' .. utils.get_api_key(options.api_key),
     }
 
+    M.send_request(options, data, headers, function(result, data_file)
+        return utils.stream_decode(result, data_file, options.name, M.openai_get_text_fn_stream)
+    end, callback)
+end
+
+---Send one JSON request with curl and call `callback` with the decoded text.
+---@param options table provider options (end_point, optional, transform, provider, name, model)
+---@param data table request body, merged with `options.optional`
+---@param headers table<string, string>
+---@param decode fun(result: vim.SystemCompleted, data_file: string): string? turns the curl result into text and deletes `data_file`
+---@param callback fun(text: string?)
+function M.send_request(options, data, headers, decode, callback)
+    local root_config = require('minuet').config
+    local duet_config = root_config.duet
+
+    data = vim.tbl_deep_extend('force', data, options.optional or {})
     local transformed_data = common.apply_transforms(options.transform, options.end_point, headers, data)
     local data_file = utils.make_tmp_file(transformed_data.body)
 
@@ -68,8 +79,7 @@ function M.complete_openai_base(options, context, callback)
                 timestamp = timestamp,
             })
 
-            local text = utils.stream_decode(result, data_file, options.name, M.openai_get_text_fn_stream)
-            callback(text)
+            callback(decode(result, data_file))
         end,
         on_spawn_error = function()
             vim.uv.fs_unlink(data_file)
