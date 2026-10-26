@@ -237,7 +237,11 @@ function M.complete(context, callback)
         end
 
         -- A truncated answer has no closing marker and is rejected by parse_response.
-        return M.parse_response(choice.text, context)
+        local response = M.parse_response(choice.text, context)
+        if not response then
+            utils.notify('Zeta proposed no edit.', 'verbose', vim.log.levels.INFO)
+        end
+        return response
     end, callback)
 end
 
