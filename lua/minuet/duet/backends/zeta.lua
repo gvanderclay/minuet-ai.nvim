@@ -189,6 +189,11 @@ function M.complete(context, callback)
     base.send_request(options, data, { ['Content-Type'] = 'application/json' }, function(result, data_file)
         vim.uv.fs_unlink(data_file)
 
+        -- A newer prediction cancelled this request; nothing to report.
+        if (result.signal or 0) ~= 0 then
+            return
+        end
+
         if result.code ~= 0 then
             utils.notify(
                 string.format('Zeta request failed with exit code %d', result.code),

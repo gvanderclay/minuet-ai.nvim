@@ -154,4 +154,31 @@ return {
             helpers.delete_buffer(bufnr)
         end,
     },
+    {
+        name = 'zeta.complete stays quiet when a newer prediction cancels the request',
+        run = function()
+            local _, context, bufnr = setup({ 'a', 'b' }, { 1, 0 })
+            local base_name = 'minuet.duet.backends.openai_base'
+            local real_base = package.loaded[base_name]
+            require('minuet').config.notify = 'debug'
+            package.loaded[base_name] = {
+                send_request = function(_, _, _, decode, callback)
+                    callback(decode({ code = 0, signal = 15, stdout = '' }, vim.fn.tempname()))
+                end,
+            }
+            local notified, restore_notify = helpers.capture_notifications()
+            local results = {}
+            local ok, err = pcall(function()
+                helpers.reload('minuet.duet.backends.zeta').complete(context, function(text)
+                    table.insert(results, text or 'nil')
+                end)
+            end)
+            package.loaded[base_name] = real_base
+            restore_notify()
+            helpers.delete_buffer(bufnr)
+            assert(ok, err)
+            helpers.expect_equal(results, { 'nil' })
+            helpers.expect_equal(notified, {})
+        end,
+    },
 }
