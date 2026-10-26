@@ -60,6 +60,66 @@ return {
         end,
     },
     {
+        name = 'duet auto trigger predicts on InsertLeave after an insert whose debounce ran out in Insert mode',
+        run = function()
+            helpers.setup_root_config {
+                duet = {
+                    provider = 'test',
+                    auto_trigger = {
+                        debounce = 20,
+                    },
+                },
+            }
+
+            local complete_count = 0
+            package.loaded['minuet.duet.backends.test'] = {
+                complete = function()
+                    complete_count = complete_count + 1
+                end,
+            }
+
+            -- Stands in for a `vim.fn.mode() == 'n'` predicate.
+            local in_normal_mode = false
+            require('minuet').config.duet.auto_trigger.enable_predicates = {
+                function()
+                    return in_normal_mode
+                end,
+            }
+
+            local duet = helpers.reload 'minuet.duet'
+            duet.setup()
+
+            local bufnr = create_normal_buffer({ 'return 1' }, { 1, 8 })
+            duet.action.enable_auto_trigger()
+
+            -- Typing, then a pause longer than the debounce before <Esc>.
+            vim.api.nvim_exec_autocmds('InsertEnter', { buffer = bufnr, modeline = false })
+            vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { 'return 2' })
+            vim.api.nvim_exec_autocmds('TextChangedI', { buffer = bufnr, modeline = false })
+            vim.wait(80, function()
+                return false
+            end, 10)
+            helpers.expect_equal(complete_count, 0, 'the predicate should block predictions in Insert mode')
+
+            in_normal_mode = true
+            vim.api.nvim_exec_autocmds('InsertLeave', { buffer = bufnr, modeline = false })
+            helpers.wait_until(function()
+                return complete_count > 0
+            end, 1000, 'leaving Insert mode after an edit did not predict')
+            helpers.expect_equal(complete_count, 1)
+
+            -- An insert that changed nothing must not predict.
+            vim.api.nvim_exec_autocmds('InsertEnter', { buffer = bufnr, modeline = false })
+            vim.api.nvim_exec_autocmds('InsertLeave', { buffer = bufnr, modeline = false })
+            vim.wait(80, function()
+                return false
+            end, 10)
+            helpers.expect_equal(complete_count, 1, 'an insert without edits predicted')
+
+            helpers.delete_buffer(bufnr)
+        end,
+    },
+    {
         name = 'duet auto trigger stays quiet when disabled or gated by its own enable_predicates',
         run = function()
             helpers.setup_root_config {

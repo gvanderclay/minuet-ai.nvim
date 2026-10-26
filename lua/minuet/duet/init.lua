@@ -13,6 +13,8 @@ local internal = {
     states = {},
     request_seq = 0,
     timer = nil,
+    -- changedtick of each buffer when Insert mode was entered
+    insert_ticks = {},
 }
 
 local function stop_timer()
@@ -241,10 +243,35 @@ function M.setup()
         desc = '[minuet.duet] clear preview and schedule auto trigger on text change',
     })
 
+    -- Leaving Insert mode fires no TextChanged. When the debounce ran out
+    -- while still typing and enable_predicates allow only Normal mode, the
+    -- edit would never get a prediction, so schedule one on InsertLeave if
+    -- the insert changed the buffer.
+    api.nvim_create_autocmd('InsertEnter', {
+        group = M.augroup,
+        callback = function(info)
+            internal.insert_ticks[info.buf] = api.nvim_buf_get_changedtick(info.buf)
+        end,
+        desc = '[minuet.duet] remember the changedtick on insert enter',
+    })
+
+    api.nvim_create_autocmd('InsertLeave', {
+        group = M.augroup,
+        callback = function(info)
+            local tick = internal.insert_ticks[info.buf]
+            internal.insert_ticks[info.buf] = nil
+            if tick and tick ~= api.nvim_buf_get_changedtick(info.buf) and vim.b[info.buf].minuet_duet_auto_trigger then
+                schedule(info.buf)
+            end
+        end,
+        desc = '[minuet.duet] schedule auto trigger after an insert that changed text',
+    })
+
     api.nvim_create_autocmd('BufWipeout', {
         group = M.augroup,
         callback = function(info)
             internal.states[info.buf] = nil
+            internal.insert_ticks[info.buf] = nil
         end,
         desc = '[minuet.duet] clear state on buf wipeout',
     })
