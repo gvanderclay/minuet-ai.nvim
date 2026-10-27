@@ -217,6 +217,7 @@ local function trigger(bufnr)
     local provider = require('minuet.backends.' .. config.provider)
     local timestamp = uv.now()
     internal.current_completion_timestamp = timestamp
+    local request_pos = api.nvim_win_get_cursor(0)
 
     provider.complete(context, function(data)
         if timestamp ~= internal.current_completion_timestamp then
@@ -224,6 +225,10 @@ local function trigger(bufnr)
                 -- Notify if outdated (and non-empty) completion items arrive
                 utils.notify('Completion items arrived, but too late, aborted', 'debug', 'info')
             end
+            return
+        end
+
+        if bufnr ~= api.nvim_get_current_buf() then
             return
         end
 
@@ -236,6 +241,18 @@ local function trigger(bufnr)
                 ctx.choice = 1
             end
             ctx.shown_choices = {}
+        end
+
+        -- The user may have typed while the request was running. Show the
+        -- rest of the suggestion if it continues the typed text; otherwise
+        -- drop it and let the pending request for the new text replace it.
+        if not vim.deep_equal(api.nvim_win_get_cursor(0), request_pos) then
+            ctx.last_pos = request_pos
+            if not update_suggestion_on_typing(ctx) then
+                reset_ctx(ctx)
+                clear_preview()
+            end
+            return
         end
 
         update_preview(ctx)
