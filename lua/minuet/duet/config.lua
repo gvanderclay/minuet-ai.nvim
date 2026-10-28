@@ -205,6 +205,16 @@ local function make_openai_compatible_options()
     }
 end
 
+local function make_zeta_options()
+    return {
+        model = 'zeta-2.1',
+        end_point = 'http://127.0.0.1:8016/v1/completions',
+        name = 'Zeta',
+        optional = {},
+        transform = {},
+    }
+end
+
 ---@alias minuet.DuetChatInputFunction fun(context: table): string
 
 --- Configuration for formatting duet chat input to the LLM
@@ -232,6 +242,8 @@ end
 ---@field auto_trigger_ft string[] filetypes where automatic duet prediction is enabled; an empty list disables automatic prediction
 ---@field auto_trigger_ignore_ft string[] filetypes excluded from automatic prediction, useful when auto_trigger_ft = { '*' }
 ---@field enable_predicates (fun(): boolean)[] predicates run before an automatic prediction fires; a prediction is made only while all of them return true
+---@field hold_in_insert_mode boolean compute automatic predictions in Insert mode from the cursor Normal mode will have, and show them only after leaving Insert mode if the buffer and cursor still match
+---@field insert_mode_debounce? integer with hold_in_insert_mode, milliseconds of idle in Insert mode before a held prediction fires; defaults to debounce
 
 ---@class minuet.DuetRecentEdits
 ---@field enabled boolean|'lazy' 'lazy' starts the recorder on the first duet prediction, true starts it at plugin setup, false disables it entirely
@@ -262,6 +274,7 @@ end
 ---@field editable_region minuet.DuetEditableRegion
 ---@field non_editable_region minuet.DuetNonEditableRegion
 ---@field recent_edits minuet.DuetRecentEdits
+---@field prefetch boolean while a prediction is shown, predict the one after it, so applying shows the next at once
 ---@field markers { editable_region_start: string, editable_region_end: string, cursor_position: string }
 ---@field preview { cursor: string }
 ---@field provider_options table<string, table>
@@ -288,6 +301,13 @@ local M = {
         -- default) always evaluates to true. These predicates run on every
         -- debounced text change, so keep them cheap.
         enable_predicates = {},
+        -- compute automatic predictions while typing pauses in Insert mode,
+        -- from the cursor Normal mode will have, but show them only after
+        -- leaving Insert mode, and only if the buffer and cursor still match
+        hold_in_insert_mode = false,
+        -- with hold_in_insert_mode, milliseconds of idle in Insert mode
+        -- before a held prediction fires; nil uses debounce
+        insert_mode_debounce = nil,
     },
     editable_region = {
         lines_before = 8,
@@ -321,6 +341,10 @@ local M = {
             end,
         },
     },
+    -- while a prediction is shown, predict the one that will follow applying
+    -- it, so applying shows the next prediction at once; supported by the
+    -- zeta provider
+    prefetch = false,
     markers = vim.deepcopy(default_markers),
     preview = {
         cursor = '\u{f246}',
@@ -330,6 +354,7 @@ local M = {
         claude = make_claude_options(),
         gemini = make_gemini_options(),
         openai_compatible = make_openai_compatible_options(),
+        zeta = make_zeta_options(),
     },
 }
 

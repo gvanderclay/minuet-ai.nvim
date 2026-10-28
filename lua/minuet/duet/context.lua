@@ -12,6 +12,7 @@ local M = {}
 ---@field editable_region_after_cursor string
 ---@field non_editable_region_after string
 ---@field recent_edits string
+---@field recent_events? minuet.DuetEditEvent[] set when the context includes an edit not yet made
 ---@field original_lines string[]
 ---@field range minuet.DuetContextRange
 
@@ -62,12 +63,19 @@ local function truncate_non_editable_regions(context_before, context_after, conf
     return context_before, context_after
 end
 
+---@class minuet.DuetContextOptions
+---@field cursor? integer[] (1,0)-indexed position to predict from; defaults to the window cursor
+---@field lines? string[] buffer text to predict from; defaults to the buffer's
+---@field edit? string unified diff hunks of an edit not yet made, added to the edit history
+
 ---@param bufnr integer
+---@param opts? minuet.DuetContextOptions
 ---@return minuet.DuetContext
-function M.build(bufnr)
+function M.build(bufnr, opts)
+    opts = opts or {}
     local config = require('minuet').config.duet
-    local cursor = vim.api.nvim_win_get_cursor(0)
-    local all_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+    local cursor = opts.cursor or vim.api.nvim_win_get_cursor(0)
+    local all_lines = opts.lines or vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
     local line_count = math.max(#all_lines, 1)
     local cursor_line = cursor[1] - 1
     local cursor_col = cursor[2]
@@ -102,6 +110,9 @@ function M.build(bufnr)
     non_editable_region_before_text, non_editable_region_after_text =
         truncate_non_editable_regions(non_editable_region_before_text, non_editable_region_after_text, config)
 
+    local edits = require 'minuet.duet.edits'
+    local recent_events = opts.edit and edits.get_events_with(bufnr, opts.edit) or nil
+
     return {
         bufnr = bufnr,
         changedtick = vim.api.nvim_buf_get_changedtick(bufnr),
@@ -109,7 +120,8 @@ function M.build(bufnr)
         editable_region_before_cursor = table.concat(editable_region_before_cursor, '\n'),
         editable_region_after_cursor = table.concat(editable_region_after_cursor, '\n'),
         non_editable_region_after = non_editable_region_after_text,
-        recent_edits = require('minuet.duet.edits').render(),
+        recent_edits = edits.render(recent_events),
+        recent_events = recent_events,
         original_lines = editable_region_lines,
         range = {
             start_row = start_row,

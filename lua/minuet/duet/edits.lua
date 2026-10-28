@@ -186,10 +186,22 @@ local function format_event(display_name, diff)
 end
 
 ---@param bufnr integer
+---@return string
+local function display_name(bufnr)
+    local name = api.nvim_buf_get_name(bufnr)
+    -- Home-relative (rather than cwd-relative) names keep the history
+    -- unambiguous when the cwd changes between flushes (e.g. project.nvim):
+    -- the same file never appears under two names, and same-named files from
+    -- different project roots never collide.
+    return name == '' and '[No Name]' or vim.fn.fnamemodify(name, ':~')
+end
+
+---@param log { events: minuet.DuetEditEvent[], total_chars: integer } the recorder's history, or a copy of it
+---@param bufnr integer
 ---@param filename string captured when the diff was started, since the
 ---buffer may no longer exist by the time an orphaned diff completes
 ---@param unified string
-local function push_event(bufnr, filename, unified)
+local function push_event(log, bufnr, filename, unified)
     local config = get_config()
     if not config then
         return
@@ -206,19 +218,17 @@ local function push_event(bufnr, filename, unified)
 
     local text = format_event(filename, bounded)
 
-    table.insert(internal.events, {
+    table.insert(log.events, {
         bufnr = bufnr,
         filename = filename,
         diff = bounded,
         text = text,
     })
-    internal.total_chars = internal.total_chars + #text
+    log.total_chars = log.total_chars + #text
 
-    while
-        #internal.events > 0 and (#internal.events > config.max_events or internal.total_chars > config.max_total_chars)
-    do
-        local evicted = table.remove(internal.events, 1)
-        internal.total_chars = internal.total_chars - #evicted.text
+    while #log.events > 0 and (#log.events > config.max_events or log.total_chars > config.max_total_chars) do
+        local evicted = table.remove(log.events, 1)
+        log.total_chars = log.total_chars - #evicted.text
     end
 end
 
@@ -288,12 +298,7 @@ local function start_flush(bufnr)
         return
     end
 
-    local name = api.nvim_buf_get_name(bufnr)
-    -- Home-relative (rather than cwd-relative) names keep the history
-    -- unambiguous when the cwd changes between flushes (e.g. project.nvim):
-    -- the same file never appears under two names, and same-named files from
-    -- different project roots never collide.
-    local filename = name == '' and '[No Name]' or vim.fn.fnamemodify(name, ':~')
+    local filename = display_name(bufnr)
 
     ---@type vim.SystemObj?
     local process
@@ -334,7 +339,7 @@ local function start_flush(bufnr)
                 internal.orphans[state] = nil
                 local unified = extract_hunks(result)
                 if unified then
-                    push_event(bufnr, filename, unified)
+                    push_event(internal, bufnr, filename, unified)
                 end
                 vim.uv.fs_unlink(state.snapshot_file)
                 vim.uv.fs_unlink(state.pending_file)
@@ -372,7 +377,7 @@ local function start_flush(bufnr)
             if result.code == 1 then
                 local unified = extract_hunks(result)
                 if unified then
-                    push_event(bufnr, filename, unified)
+                    push_event(internal, bufnr, filename, unified)
                 else
                     -- Binary or otherwise unparseable output: skipping but
                     -- rotating is deliberate - retrying would loop forever.
@@ -508,15 +513,16 @@ end
 ---newest, joined by blank lines, and wrapped in an XML element. Returns an
 ---empty string when the recorder is disabled or there is no history. The
 ---stored events are already bounded by max_total_chars.
+---@param events? minuet.DuetEditEvent[] defaults to the stored events
 ---@return string
-function M.render()
+function M.render(events)
     local config = get_config()
     if not config or not config.enabled then
         return ''
     end
 
     local parts = {}
-    for _, event in ipairs(internal.events) do
+    for _, event in ipairs(events or internal.events) do
         table.insert(parts, event.text)
     end
 
@@ -532,6 +538,20 @@ end
 ---corrupt the recorder's total_chars accounting by mutating it
 function M.get_events()
     return vim.deepcopy(internal.events)
+end
+
+---The stored events plus an edit to `bufnr` that has not been made, given as
+---unified diff hunks; the edit is left out when the buffer is not tracked.
+---Returns a copy; the stored events are unchanged.
+---@param bufnr integer
+---@param unified string
+---@return minuet.DuetEditEvent[] oldest first
+function M.get_events_with(bufnr, unified)
+    local log = { events = vim.deepcopy(internal.events), total_chars = internal.total_chars }
+    if is_trackable(bufnr) then
+        push_event(log, bufnr, display_name(bufnr), unified)
+    end
+    return log.events
 end
 
 ---Drop all events and buffer snapshots, cancel in-flight diffs (including

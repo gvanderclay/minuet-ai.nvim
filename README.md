@@ -1513,6 +1513,37 @@ region, including the cursor marker; if the response is truncated, the parser
 will reject it. Leave the limit unset when the provider allows that, or set it
 large enough to cover the full rewritten region.
 
+## Local Zeta-2.1
+
+The `zeta` provider uses Zed's Zeta-2.1 next-edit model through a completion
+endpoint such as llama-server (it sends raw completion requests, not chat
+requests). Start the server with a Zeta-2.1 GGUF file:
+
+```bash
+llama-server -m zeta-2.1.Q8_0.gguf --host 127.0.0.1 --port 8016 -ngl 99 -fa on -c 16384 -np 1
+```
+
+Then select the provider. Enabling `recent_edits` at startup gives the model
+your edit history from the first prediction.
+
+```lua
+require('minuet').setup {
+    duet = {
+        provider = 'zeta',
+        recent_edits = { enabled = true },
+        provider_options = {
+            zeta = {
+                end_point = 'http://127.0.0.1:8016/v1/completions',
+                model = 'zeta-2.1',
+            },
+        },
+    },
+}
+```
+
+The `editable_region`, `markers` and `request_timeout` settings still apply.
+The `optional` and `transform` options work as for the other providers.
+
 ## Auto Trigger
 
 ```lua
@@ -1560,6 +1591,31 @@ require('minuet').setup {
 }
 ```
 
+**Example: predict while typing, show the prediction in normal mode**
+
+With a Normal-mode-only predicate, a prediction starts only after you leave
+Insert mode, so you wait for the whole request. Set
+`auto_trigger.hold_in_insert_mode = true` (and drop the predicate) to start
+the prediction when typing pauses in Insert mode instead. It is computed from
+the cursor Normal mode will have and held hidden, so it never covers inline
+completion. On `<Esc>` it is shown at once, or as soon as it arrives, if the
+buffer and cursor still match; otherwise duet predicts again after leaving
+Insert mode. A held prediction waits for a running inline completion
+request. When both models run on the same local hardware, set
+`auto_trigger.insert_mode_debounce` above `debounce` so the short pauses of
+steady typing start no prediction.
+
+```lua
+require('minuet').setup {
+    duet = {
+        auto_trigger = {
+            auto_trigger_ft = { 'lua', 'python' },
+            hold_in_insert_mode = true,
+        },
+    },
+}
+```
+
 ## Recent Edits
 
 Duet silently records your recent edits in the background and includes them in
@@ -1595,10 +1651,30 @@ recent_edits = {
 },
 ```
 
+## Prefetch
+
+A rename or other change that reaches several places is often shown in
+steps: apply one prediction, and the next one appears after another request.
+Set `prefetch = true` to request that next prediction while the first is
+still shown, from the buffer as applying it will leave it. Applying then shows
+it at once, or as soon as it arrives. Dismissing the prediction, editing, a
+new prediction, or leaving the buffer discards it. Each shown prediction costs
+one more request. Supported by the `zeta` provider.
+
+```lua
+require('minuet').setup {
+    duet = {
+        provider = 'zeta',
+        prefetch = true,
+    },
+}
+```
+
 ## TODO
 
 - [x] Implement a proper diff mechanism to include recent edit changes in prompts.
-- [ ] Add support for specialized NES models (Zeta, Sweep).
+- [x] Add support for Zeta-2.1.
+- [ ] Add support for other specialized NES models (Sweep).
 - [ ] Integrate with Inception's hosted API.
 - [x] Implement automatically triggered duet prediction.
 
@@ -1615,6 +1691,8 @@ require('minuet').setup {
             auto_trigger_ft = {}, -- Filetypes where automatic duet prediction is enabled; an empty list disables automatic prediction.
             auto_trigger_ignore_ft = {}, -- Filetypes excluded from automatic prediction, useful when auto_trigger_ft = { '*' }.
             enable_predicates = {}, -- Predicates run before an automatic prediction fires; a prediction is made only while all of them return true.
+            hold_in_insert_mode = false, -- Compute automatic predictions in Insert mode but show them only after leaving it, if the buffer and cursor still match.
+            insert_mode_debounce = nil, -- With hold_in_insert_mode, milliseconds of idle in Insert mode before a held prediction fires; nil uses debounce.
         },
         editable_region = {
             lines_before = 8, -- Number of editable lines included before the cursor.
@@ -1638,6 +1716,7 @@ require('minuet').setup {
             flush_timeout = 200, -- Max milliseconds a prediction waits for in-flight diffs before proceeding with slightly stale history.
             enable_predicates = { ... }, -- Per-buffer predicates called with a buffer number; a buffer is tracked only while all return true. Defaults to rejecting dotenv files (.env, .env.*); overriding replaces that default.
         },
+        prefetch = false, -- While a prediction is shown, predict the one that follows applying it, so applying shows the next prediction at once. Supported by the zeta provider.
         markers = {
             editable_region_start = '<editable_region>', -- Marker that wraps the start of the editable region in prompts and responses.
             editable_region_end = '</editable_region>', -- Marker that wraps the end of the editable region in prompts and responses.
